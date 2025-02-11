@@ -233,8 +233,60 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint256 tokenId,
         int24 newLowerTick,
         int24 newUpperTick
-    ) external override returns (uint128 amount0, uint128 amount1) {
-        revert("Not implemented");
+    ) external override nonReentrant returns (uint128 amount0, uint128 amount1) {
+        Position storage position = positions[tokenId];
+        
+        // Check ownership and lock status
+        if (position.owner != msg.sender) revert Unauthorized();
+        if (position.lockEndTime > block.timestamp) revert PositionCurrentlyLocked();
+        
+        // Verify tick range
+        if (newLowerTick >= newUpperTick) revert InvalidTickRange();
+        
+        // Check that the new position maintains the same tick spacing
+        int24 oldTickSpacing = position.upperTick - position.lowerTick;
+        int24 newTickSpacing = newUpperTick - newLowerTick;
+        if (oldTickSpacing != newTickSpacing) revert InvalidTickSpacing();
+        
+        bytes32 poolKey = _getPoolKey(position.token0, position.token1, position.fee);
+        Pool storage pool = pools[poolKey];
+        
+        // Remove liquidity from old position
+        uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(position.lowerTick);
+        uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(position.upperTick);
+        
+        // Calculate amounts to remove based on current position
+        amount0 = uint128(uint256(position.liquidity) * (sqrtRatioBX96 - sqrtRatioAX96) / pool.sqrtPriceX96);
+        amount1 = uint128(uint256(position.liquidity) * (pool.sqrtPriceX96 - sqrtRatioAX96) / Q96);
+        
+        // Update pool liquidity
+        pool.liquidity = uint128(uint256(pool.liquidity) - position.liquidity);
+        
+        // Calculate new liquidity for new position
+        uint128 newLiquidity = _calculateLiquidity(
+            pool.sqrtPriceX96,
+            newLowerTick,
+            newUpperTick,
+            amount0,
+            amount1
+        );
+        
+        // Update position with new ticks and liquidity
+        position.lowerTick = newLowerTick;
+        position.upperTick = newUpperTick;
+        position.liquidity = newLiquidity;
+        
+        // Update pool with new liquidity
+        pool.liquidity += newLiquidity;
+        
+        emit PositionModified(
+            tokenId,
+            newLowerTick,
+            newUpperTick,
+            newLiquidity
+        );
+        
+        return (amount0, amount1);
     }
 
     function lockPosition(uint256 tokenId, uint256 lockPeriod) external override {

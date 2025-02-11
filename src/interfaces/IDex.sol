@@ -17,6 +17,7 @@ interface IDex {
     error PositionCurrentlyLocked();
     error InvalidLockPeriod();
     error LockPeriodTooLong();
+    error InvalidTickSpacing();
 
     // Structs
     struct Position {
@@ -62,6 +63,12 @@ interface IDex {
     event PositionLocked(uint256 indexed tokenId, uint256 lockPeriod, uint256 lockEndTime);
     event Swap(address indexed sender, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
     event TicksModified(uint256 indexed tokenId, int24 newLowerTick, int24 upperTick);
+    event PositionModified(
+        uint256 indexed tokenId,
+        int24 newLowerTick,
+        int24 newUpperTick,
+        uint128 newLiquidity
+    );
 
     // Pool Management
     function createPool(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external returns (address pool);
