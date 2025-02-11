@@ -5,8 +5,12 @@ import "./interfaces/IDex.sol";
 import { IERC20 } from "@openzeppelin/token/ERC20/IERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/utils/ReentrancyGuard.sol";
 import { ERC721 } from "@openzeppelin/token/ERC721/ERC721.sol";
+import { TickMath } from "./libraries/TickMath.sol";
+import { LiquidityMath } from "./libraries/LiquidityMath.sol";
 
 contract Dex is IDex, ReentrancyGuard, ERC721 {
+    uint256 internal constant Q96 = 0x1000000000000000000000000;  // 2^96
+    
     // State variables
     mapping(bytes32 => Pool) public pools;
     mapping(uint256 => Position) public positions;
@@ -42,9 +46,16 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint128 amount0Desired,
         uint128 amount1Desired
     ) internal pure returns (uint128 liquidity) {
-        // For now, return a simplified calculation
-        // In reality, this would use the concentrated liquidity formula
-        return uint128((uint256(amount0Desired) + uint256(amount1Desired)) / 2);
+        uint160 sqrtPriceLowerX96 = TickMath.getSqrtRatioAtTick(lowerTick);
+        uint160 sqrtPriceUpperX96 = TickMath.getSqrtRatioAtTick(upperTick);
+        
+        return LiquidityMath.getLiquidityForAmounts(
+            sqrtPriceX96,
+            sqrtPriceLowerX96,
+            sqrtPriceUpperX96,
+            amount0Desired,
+            amount1Desired
+        );
     }
 
     function createPool(
@@ -130,6 +141,7 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
             owner: msg.sender,
             token0: token0Sorted,
             token1: token1Sorted,
+            fee: fee,
             liquidity: liquidity,
             lowerTick: lowerTick,
             upperTick: upperTick,
@@ -161,9 +173,31 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
 
     function removeLiquidity(
         uint256 tokenId,
-        uint128 liquidity
-    ) external override returns (uint128 amount0, uint128 amount1) {
-        revert("Not implemented");
+        uint128 liquidityAmount
+    ) external override nonReentrant returns (uint128 amount0, uint128 amount1) {
+        Position storage position = positions[tokenId];
+        if (position.owner != msg.sender) revert Unauthorized();
+        if (position.lockEndTime > block.timestamp) revert PositionCurrentlyLocked();
+        if (liquidityAmount > position.liquidity) revert InsufficientLiquidity();
+
+        bytes32 poolKey = _getPoolKey(position.token0, position.token1, position.fee);
+        Pool storage pool = pools[poolKey];
+
+        // Calculate amounts using proper price ratio
+        uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(position.lowerTick);
+        uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(position.upperTick);
+        
+        amount0 = uint128(uint256(liquidityAmount) * (sqrtRatioBX96 - sqrtRatioAX96) / pool.sqrtPriceX96);
+        amount1 = uint128(uint256(liquidityAmount) * (pool.sqrtPriceX96 - sqrtRatioAX96) / Q96);
+
+        position.liquidity -= liquidityAmount;
+        pool.liquidity -= liquidityAmount;
+
+        IERC20(position.token0).transfer(msg.sender, amount0);
+        IERC20(position.token1).transfer(msg.sender, amount1);
+
+        emit LiquidityRemoved(tokenId, liquidityAmount);
+        return (amount0, amount1);
     }
 
     function modifyPosition(
@@ -177,7 +211,7 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     function lockPosition(uint256 tokenId, uint256 lockPeriod) external override {
         revert("Not implemented");
     }
-
+    
     // Helper function to calculate amount out based on liquidity and price change
     function _calculateAmountOut(
         uint256 amountIn,
@@ -185,11 +219,22 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint160 sqrtPriceX96,
         uint24 fee
     ) internal pure returns (uint256 amountOut) {
-        // Simple constant product formula for now
-        // Will be replaced with proper concentrated liquidity formula
+        // Calculate price impact using concentrated liquidity formula
         uint256 feeAmount = (amountIn * fee) / 10000;
         uint256 amountInAfterFee = amountIn - feeAmount;
-        amountOut = (amountInAfterFee * liquidity) / (amountInAfterFee + liquidity);
+        
+        uint256 priceRatio = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+        uint256 virtualReserve0 = uint256(liquidity) * Q96 / sqrtPriceX96;
+        uint256 virtualReserve1 = uint256(liquidity) * sqrtPriceX96 / Q96;
+        
+        if (amountInAfterFee > virtualReserve0) {
+            revert InsufficientLiquidity();
+        }
+        
+        uint256 newSqrtPrice = uint256(sqrtPriceX96) * (virtualReserve0 + amountInAfterFee) 
+            / (virtualReserve0);
+            
+        amountOut = virtualReserve1 - (uint256(liquidity) * Q96 / newSqrtPrice);
     }
 
     function swap(SwapParams calldata params) external override nonReentrant returns (uint256 amountOut) {

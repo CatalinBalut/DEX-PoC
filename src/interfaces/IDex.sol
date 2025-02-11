@@ -13,12 +13,15 @@ interface IDex {
     error InsufficientLiquidity();
     error InsufficientOutputAmount();
     error InvalidPosition();
+    error Unauthorized();
+    error PositionCurrentlyLocked();
 
     // Structs
     struct Position {
         address owner;
         address token0;
         address token1;
+        uint24 fee;
         uint256 liquidity;
         int24 lowerTick;
         int24 upperTick;
