@@ -238,7 +238,23 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     }
 
     function lockPosition(uint256 tokenId, uint256 lockPeriod) external override {
-        revert("Not implemented");
+        Position storage position = positions[tokenId];
+        
+        // Check ownership
+        if (position.owner != msg.sender) revert Unauthorized();
+        
+        // Check if position is not already locked
+        if (position.lockEndTime > block.timestamp) revert PositionCurrentlyLocked();
+        
+        // Check if lock period is valid (e.g., not too long)
+        if (lockPeriod == 0) revert InvalidLockPeriod();
+        if (lockPeriod > 365 days) revert LockPeriodTooLong();
+        
+        // Set the lock end time
+        position.lockPeriod = lockPeriod;
+        position.lockEndTime = block.timestamp + lockPeriod;
+        
+        emit PositionLocked(tokenId, lockPeriod, position.lockEndTime);
     }
     
     // Helper function to calculate amount out based on liquidity and price change

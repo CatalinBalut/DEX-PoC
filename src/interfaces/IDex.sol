@@ -15,6 +15,8 @@ interface IDex {
     error InvalidPosition();
     error Unauthorized();
     error PositionCurrentlyLocked();
+    error InvalidLockPeriod();
+    error LockPeriodTooLong();
 
     // Structs
     struct Position {
@@ -57,7 +59,7 @@ interface IDex {
     event PositionBurned(uint256 indexed tokenId);
     event LiquidityAdded(uint256 indexed tokenId, uint128 liquidity);
     event LiquidityRemoved(uint256 indexed tokenId, uint128 liquidity);
-    event PositionLocked(uint256 indexed tokenId, uint256 lockPeriod);
+    event PositionLocked(uint256 indexed tokenId, uint256 lockPeriod, uint256 lockEndTime);
     event Swap(address indexed sender, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
     event TicksModified(uint256 indexed tokenId, int24 newLowerTick, int24 upperTick);
 
