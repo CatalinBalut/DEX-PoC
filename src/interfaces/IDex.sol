@@ -2,6 +2,18 @@
 pragma solidity ^0.8.13;
 
 interface IDex {
+    // Add these at the top of the interface, before the structs
+    error IdenticalAddresses();
+    error ZeroAddress();
+    error InvalidFee();
+    error PoolExists();
+    error PoolNotInitialized();
+    error InvalidTickRange();
+    error InvalidAmountIn();
+    error InsufficientLiquidity();
+    error InsufficientOutputAmount();
+    error InvalidPosition();
+
     // Structs
     struct Position {
         address owner;
