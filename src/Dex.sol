@@ -15,6 +15,8 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     mapping(bytes32 => Pool) public pools;
     mapping(uint256 => Position) public positions;
     uint256 private _nextTokenId;
+    mapping(uint256 => uint256) public positionFees0;  // tokenId => token0 fees
+    mapping(uint256 => uint256) public positionFees1;  // tokenId => token1 fees
     
     constructor() ERC721("Dex Position", "DPOS") {}
 
@@ -327,6 +329,40 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         amountOut = (amountOut * (10000 - fee)) / 10000;
     }
 
+    function _updatePositionFees(
+        uint256 tokenId,
+        uint256 fee0,
+        uint256 fee1
+    ) internal {
+        positionFees0[tokenId] += fee0;
+        positionFees1[tokenId] += fee1;
+    }
+
+    function collectFees(uint256 tokenId) external override nonReentrant returns (uint256 amount0, uint256 amount1) {
+        Position storage position = positions[tokenId];
+        
+        // Check ownership
+        if (position.owner != msg.sender) revert Unauthorized();
+        
+        // Get accumulated fees
+        amount0 = positionFees0[tokenId];
+        amount1 = positionFees1[tokenId];
+        
+        // Reset fees to 0
+        positionFees0[tokenId] = 0;
+        positionFees1[tokenId] = 0;
+        
+        // Transfer fees to owner
+        if (amount0 > 0) {
+            IERC20(position.token0).transfer(msg.sender, amount0);
+        }
+        if (amount1 > 0) {
+            IERC20(position.token1).transfer(msg.sender, amount1);
+        }
+        
+        emit FeesCollected(tokenId, amount0, amount1);
+    }
+
     function swap(SwapParams calldata params) external override nonReentrant returns (uint256 amountOut) {
         if (params.amountIn == 0) revert InvalidAmountIn();
         
@@ -345,6 +381,16 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
             params.fee
         );
         if (amountOut < params.amountOutMinimum) revert InsufficientOutputAmount();
+
+        // Calculate fee amount
+        uint256 feeAmount = (params.amountIn * params.fee) / 10000;
+        
+        // Calculate proportion of fee for each active position
+        uint256 totalPositions = _getActivePositionsCount(poolKey);
+        if (totalPositions > 0) {
+            uint256 feePerPosition = feeAmount / totalPositions;
+            _distributeFeesToPositions(poolKey, params.tokenIn == token0 ? feePerPosition : 0, params.tokenIn == token1 ? feePerPosition : 0);
+        }
 
         // Transfer tokens
         IERC20(params.tokenIn).transferFrom(msg.sender, address(this), params.amountIn);
@@ -394,11 +440,36 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     }
 
     function getTokensOwed(uint256 tokenId) external view override returns (uint128 amount0, uint128 amount1) {
-        revert("Not implemented");
+        // Return the accumulated fees for the position
+        return (
+            uint128(positionFees0[tokenId]),
+            uint128(positionFees1[tokenId])
+        );
     }
 
     function isPositionLocked(uint256 tokenId) external view override returns (bool) {
         Position memory position = positions[tokenId];
         return position.lockEndTime > block.timestamp;
+    }
+
+    function _getActivePositionsCount(bytes32 poolKey) internal view returns (uint256 count) {
+        // This is a simplified version. In practice, you'd want to track this more efficiently
+        for (uint256 i = 0; i < _nextTokenId; i++) {
+            Position memory position = positions[i];
+            if (position.liquidity > 0 && 
+                _getPoolKey(position.token0, position.token1, position.fee) == poolKey) {
+                count++;
+            }
+        }
+    }
+
+    function _distributeFeesToPositions(bytes32 poolKey, uint256 fee0PerPosition, uint256 fee1PerPosition) internal {
+        for (uint256 i = 0; i < _nextTokenId; i++) {
+            Position memory position = positions[i];
+            if (position.liquidity > 0 && 
+                _getPoolKey(position.token0, position.token1, position.fee) == poolKey) {
+                _updatePositionFees(i, fee0PerPosition, fee1PerPosition);
+            }
+        }
     }
 }

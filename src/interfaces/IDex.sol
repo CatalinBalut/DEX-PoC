@@ -69,6 +69,7 @@ interface IDex {
         int24 newUpperTick,
         uint128 newLiquidity
     );
+    event FeesCollected(uint256 indexed tokenId, uint256 amount0, uint256 amount1);
 
     // Pool Management
     function createPool(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external returns (address pool);
@@ -121,4 +122,6 @@ interface IDex {
         uint24 fee,
         uint256 amountIn
     ) external view returns (uint256 amountOut);
+
+    function collectFees(uint256 tokenId) external returns (uint256 amount0, uint256 amount1);
 } 
