@@ -26,11 +26,11 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     // Helper to ensure tokens are sorted
     function _sortTokens(address tokenA, address tokenB) internal pure 
         returns (address token0, address token1) {
-        require(tokenA != tokenB, "DEX: IDENTICAL_ADDRESSES");
+        if (tokenA == tokenB) revert IdenticalAddresses();
         (token0, token1) = tokenA < tokenB 
             ? (tokenA, tokenB) 
             : (tokenB, tokenA);
-        require(token0 != address(0), "DEX: ZERO_ADDRESS");
+        if (token0 == address(0)) revert ZeroAddress();
         return (token0, token1);
     }
 
@@ -53,11 +53,11 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint24 fee,
         uint160 sqrtPriceX96
     ) external override returns (address) {
-        require(fee > 0, "DEX: INVALID_FEE");
+        if (fee == 0) revert InvalidFee();
         
         (address token0, address token1) = _sortTokens(tokenA, tokenB);
         bytes32 poolKey = _getPoolKey(token0, token1, fee);
-        require(!pools[poolKey].initialized, "DEX: POOL_EXISTS");
+        if (pools[poolKey].initialized) revert PoolExists();
 
         pools[poolKey] = Pool({
             token0: token0,
@@ -96,13 +96,13 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint128 amount0,
         uint128 amount1
     ) {
-        require(lowerTick < upperTick, "DEX: INVALID_TICK_RANGE");
+        if (lowerTick >= upperTick) revert InvalidTickRange();
         
         // Sort tokens and get pool
         (address token0Sorted, address token1Sorted) = _sortTokens(token0, token1);
         bytes32 poolKey = _getPoolKey(token0Sorted, token1Sorted, fee);
         Pool storage pool = pools[poolKey];
-        require(pool.initialized, "DEX: POOL_NOT_INITIALIZED");
+        if (!pool.initialized) revert PoolNotInitialized();
 
         // Transfer tokens to contract
         if (amount0Desired > 0) {
@@ -178,12 +178,83 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         revert("Not implemented");
     }
 
-    function swap(SwapParams calldata params) external override returns (uint256 amountOut) {
-        revert("Not implemented");
+    // Helper function to calculate amount out based on liquidity and price change
+    function _calculateAmountOut(
+        uint256 amountIn,
+        uint128 liquidity,
+        uint160 sqrtPriceX96,
+        uint24 fee
+    ) internal pure returns (uint256 amountOut) {
+        // Simple constant product formula for now
+        // Will be replaced with proper concentrated liquidity formula
+        uint256 feeAmount = (amountIn * fee) / 10000;
+        uint256 amountInAfterFee = amountIn - feeAmount;
+        amountOut = (amountInAfterFee * liquidity) / (amountInAfterFee + liquidity);
+    }
+
+    function swap(SwapParams calldata params) external override nonReentrant returns (uint256 amountOut) {
+        if (params.amountIn == 0) revert InvalidAmountIn();
+        
+        // Sort tokens and get pool
+        (address token0, address token1) = _sortTokens(params.tokenIn, params.tokenOut);
+        bytes32 poolKey = _getPoolKey(token0, token1, params.fee);
+        Pool storage pool = pools[poolKey];
+        if (!pool.initialized) revert PoolNotInitialized();
+        if (pool.liquidity == 0) revert InsufficientLiquidity();
+
+        // Calculate amount out
+        amountOut = _calculateAmountOut(
+            params.amountIn,
+            pool.liquidity,
+            pool.sqrtPriceX96,
+            params.fee
+        );
+        if (amountOut < params.amountOutMinimum) revert InsufficientOutputAmount();
+
+        // Transfer tokens
+        IERC20(params.tokenIn).transferFrom(msg.sender, address(this), params.amountIn);
+        IERC20(params.tokenOut).transfer(params.recipient, amountOut);
+
+        // Update pool price (simplified for now)
+        // In reality, would update based on concentrated liquidity formula
+        pool.sqrtPriceX96 = uint160(
+            (uint256(pool.sqrtPriceX96) * (params.amountIn + pool.liquidity)) / 
+            (amountOut + pool.liquidity)
+        );
+
+        emit Swap(
+            msg.sender,
+            params.tokenIn,
+            params.tokenOut,
+            params.amountIn,
+            amountOut
+        );
+
+        return amountOut;
+    }
+
+    function calculateSwapQuote(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn
+    ) external view override returns (uint256 amountOut) {
+        (address token0, address token1) = _sortTokens(tokenIn, tokenOut);
+        bytes32 poolKey = _getPoolKey(token0, token1, fee);
+        Pool memory pool = pools[poolKey];
+        if (!pool.initialized) revert PoolNotInitialized();
+        if (pool.liquidity == 0) revert InsufficientLiquidity();
+
+        return _calculateAmountOut(
+            amountIn,
+            pool.liquidity,
+            pool.sqrtPriceX96,
+            fee
+        );
     }
 
     function getPosition(uint256 tokenId) external view override returns (Position memory) {
-        // require(_exists(tokenId), "DEX: INVALID_POSITION");
+        // if (!_exists(tokenId)) revert InvalidPosition();
         return positions[tokenId];
     }
 
@@ -194,14 +265,5 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
     function isPositionLocked(uint256 tokenId) external view override returns (bool) {
         Position memory position = positions[tokenId];
         return position.lockEndTime > block.timestamp;
-    }
-
-    function calculateSwapQuote(
-        address tokenIn,
-        address tokenOut,
-        uint24 fee,
-        uint256 amountIn
-    ) external view override returns (uint256 amountOut) {
-        revert("Not implemented");
     }
 }
