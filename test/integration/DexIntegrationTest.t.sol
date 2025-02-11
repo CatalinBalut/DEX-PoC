@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "../utils/DexTestUtils.sol";
+import "../utils/DexTestUtils.t.sol";
 
 contract DexIntegrationTest is DexTestUtils {
     function test_FullFlow() public {

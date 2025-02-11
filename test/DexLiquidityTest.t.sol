@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./DexTest.sol";
+import "./DexTest.t.sol";
 
 contract DexLiquidityTest is DexTest {
     function setUp() public override {
