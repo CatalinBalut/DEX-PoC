@@ -167,8 +167,37 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint256 tokenId,
         uint128 amount0Desired,
         uint128 amount1Desired
-    ) external override returns (uint128 amount0, uint128 amount1) {
-        revert("Not implemented");
+    ) external override nonReentrant returns (uint128 amount0, uint128 amount1) {
+        Position storage position = positions[tokenId];
+        if (position.owner != msg.sender) revert Unauthorized();
+        if (position.lockEndTime > block.timestamp) revert PositionCurrentlyLocked();
+
+        bytes32 poolKey = _getPoolKey(position.token0, position.token1, position.fee);
+        Pool storage pool = pools[poolKey];
+
+        // Calculate new liquidity amount
+        uint128 newLiquidity = _calculateLiquidity(
+            pool.sqrtPriceX96,
+            position.lowerTick,
+            position.upperTick,
+            amount0Desired,
+            amount1Desired
+        );
+
+        // Transfer tokens to contract
+        if (amount0Desired > 0) {
+            IERC20(position.token0).transferFrom(msg.sender, address(this), amount0Desired);
+        }
+        if (amount1Desired > 0) {
+            IERC20(position.token1).transferFrom(msg.sender, address(this), amount1Desired);
+        }
+
+        // Update position and pool liquidity
+        position.liquidity += newLiquidity;
+        pool.liquidity += newLiquidity;
+
+        emit LiquidityAdded(tokenId, newLiquidity);
+        return (amount0Desired, amount1Desired);
     }
 
     function removeLiquidity(
@@ -219,22 +248,15 @@ contract Dex is IDex, ReentrancyGuard, ERC721 {
         uint160 sqrtPriceX96,
         uint24 fee
     ) internal pure returns (uint256 amountOut) {
-        // Calculate price impact using concentrated liquidity formula
-        uint256 feeAmount = (amountIn * fee) / 10000;
-        uint256 amountInAfterFee = amountIn - feeAmount;
-        
-        uint256 priceRatio = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+        // Calculate virtual reserves
         uint256 virtualReserve0 = uint256(liquidity) * Q96 / sqrtPriceX96;
         uint256 virtualReserve1 = uint256(liquidity) * sqrtPriceX96 / Q96;
         
-        if (amountInAfterFee > virtualReserve0) {
-            revert InsufficientLiquidity();
-        }
+        // Calculate output before fees
+        amountOut = (amountIn * virtualReserve1) / (virtualReserve0 + amountIn);
         
-        uint256 newSqrtPrice = uint256(sqrtPriceX96) * (virtualReserve0 + amountInAfterFee) 
-            / (virtualReserve0);
-            
-        amountOut = virtualReserve1 - (uint256(liquidity) * Q96 / newSqrtPrice);
+        // Apply fee after price impact calculation
+        amountOut = (amountOut * (10000 - fee)) / 10000;
     }
 
     function swap(SwapParams calldata params) external override nonReentrant returns (uint256 amountOut) {

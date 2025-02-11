@@ -16,7 +16,7 @@ contract DexTest is Test {
     address public bob = makeAddr("bob");
     
     // Common test values
-    uint24 public constant FEE = 3000; // 0.3%
+    uint24 public constant FEE = 300; // 0.3%
     uint160 public constant INITIAL_SQRT_PRICE = 79228162514264337593543950336; // 1:1 price
     
     function setUp() public virtual {
