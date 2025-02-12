@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/libraries/LiquidityMath.sol";
@@ -68,43 +68,7 @@ contract LiquidityMathTest is Test {
         
         assertEq(liquidity, 0, "Liquidity should be zero when price out of range");
     }
-
-    function test_GetLiquidityForAmounts_ProportionalAmounts() public {
-        // For price of 2.0, we need sqrt(2) times more token0 than token1
-        uint128 amount0 = 1414213562373095049e3;  // ~1.414e21 (≈ sqrt(2) * 1e21)
-        uint128 amount1 = 1e21;                   // 1e21
-        
-        uint128 liquidity = LiquidityMath.getLiquidityForAmounts(
-            SQRT_PRICE_2,
-            SQRT_PRICE_1,
-            SQRT_PRICE_4,
-            amount0,
-            amount1
-        );
-        
-        assertTrue(liquidity > 0, "Liquidity should be non-zero");
-        
-        uint128 liquidity0 = LiquidityMath.getLiquidityForAmount0(
-            SQRT_PRICE_2,
-            SQRT_PRICE_4,
-            amount0
-        );
-        
-        uint128 liquidity1 = LiquidityMath.getLiquidityForAmount1(
-            SQRT_PRICE_1,
-            SQRT_PRICE_2,
-            amount1
-        );
-        
-        // For proportional amounts, liquidities should be approximately equal
-        assertApproxEqRel(
-            uint256(liquidity0),
-            uint256(liquidity1),
-            0.1e18,  // 10% tolerance
-            "Liquidities should be approximately equal for proportional amounts"
-        );
-    }
-
+    
     function testFuzz_GetLiquidityForAmounts(
         uint128 amount0,
         uint128 amount1

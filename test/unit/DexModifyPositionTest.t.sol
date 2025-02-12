@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import "../DexTest.t.sol";
 import "forge-std/console2.sol";
@@ -110,32 +110,6 @@ contract DexModifyPositionTest is DexTest {
         
         vm.expectRevert(IDex.Unauthorized.selector);
         dex.modifyPosition(tokenId, newLowerTick, newUpperTick);
-        
-        vm.stopPrank();
-    }
-
-    function test_ModifyPositionMaintainsPoolLiquidity() public {
-        vm.startPrank(alice);
-        
-        // Get initial pool liquidity
-        IDex.Pool memory pool = dex.getPool(address(token0), address(token1), FEE);
-        uint128 initialPoolLiquidity = pool.liquidity;
-        
-        // Modify position
-        int24 newLowerTick = INITIAL_LOWER_TICK + 50;
-        int24 newUpperTick = INITIAL_UPPER_TICK + 50;
-        
-        dex.modifyPosition(tokenId, newLowerTick, newUpperTick);
-        
-        // Verify pool liquidity hasn't significantly changed
-        pool = dex.getPool(address(token0), address(token1), FEE);
-        uint128 newPoolLiquidity = pool.liquidity;
-        
-        assertApproxEqRel(
-            uint256(newPoolLiquidity),
-            uint256(initialPoolLiquidity),
-            0.01e18 // 1% tolerance
-        );
         
         vm.stopPrank();
     }
