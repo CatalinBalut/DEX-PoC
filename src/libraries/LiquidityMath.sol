@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 library LiquidityMath {
     uint256 internal constant Q96 = 0x1000000000000000000000000;  // 2^96
