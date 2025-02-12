@@ -39,7 +39,7 @@ foundryup
 
 2. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/dex.git
+git clone https://github.com/CatalinBalut/DEX-PoC
 cd dex
 ```
 
